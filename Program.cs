@@ -162,7 +162,11 @@ This command will forcibly revert migrated assets that have failed back to their
             var console = AnsiConsole.Console;
 
             collection
-                .AddSingleton<TokenCredential>(new DefaultAzureCredential(includeInteractiveCredentials: true))
+                .AddSingleton<TokenCredential>(new DefaultAzureCredential(new DefaultAzureCredentialOptions
+                {
+                    AuthorityHost = AzureAuthorityHosts.AzureChina,
+                    ExcludeInteractiveBrowserCredential=false
+                }))
                 .AddSingleton(options)
                 .AddSingleton(console)
                 .AddSingleton<IMigrationTracker<BlobContainerClient, AssetMigrationResult>, AssetMigrationTracker>()

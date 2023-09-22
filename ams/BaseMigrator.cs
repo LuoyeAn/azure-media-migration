@@ -25,7 +25,7 @@ namespace AMSMigrate.Ams
             _globalOptions = options;
             _console = console;
             _resourceProvider = new AzureResourceProvider(credential, options);
-            _metricsQueryClient = new MetricsQueryClient(credential);
+            _metricsQueryClient = new MetricsQueryClient(new Uri("https://management.chinacloudapi.cn"),credential);
         }
 
         public abstract Task MigrateAsync(CancellationToken cancellationToken);

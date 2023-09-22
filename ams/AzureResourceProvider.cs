@@ -22,7 +22,7 @@ namespace AMSMigrate.Ams
         {
             _globalOptions = options;
             _credentials = credential;
-            var clientOptions = new ArmClientOptions();
+            var clientOptions = new ArmClientOptions() { Environment = ArmEnvironment.AzureChina };
             clientOptions.Diagnostics.ApplicationId = $"AMSMigrate/{GetType().Assembly.GetName().Version}";
             _armClient = new ArmClient(credential, default, clientOptions);
             var resourceGroupId = ResourceGroupResource.CreateResourceIdentifier(
