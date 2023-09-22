@@ -117,6 +117,8 @@ namespace AMSMigrate.Ams
             CancellationToken cancellationToken)
         {
             AssetMigrationResult result = new AssetMigrationResult(MigrationStatus.NotMigrated);
+            //if(asset.Data.Container!= "asset-7a200fb1-32d8-469a-96b2-5785a56c3367")
+            //    return result;
             _logger.LogInformation("Migrating asset: {name} (container {container}) ...", asset.Data.Name, asset.Data.Container);
 
             try
@@ -136,7 +138,7 @@ namespace AMSMigrate.Ams
 
                 if (_options.SkipMigrated)
                 {
-                    if (result.Status == MigrationStatus.Completed)
+                    if (result.Status == MigrationStatus.Completed&&false)
                     {
                         _logger.LogDebug("Asset: {name} has already been migrated.", asset.Data.Name);
 

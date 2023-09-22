@@ -32,7 +32,12 @@ namespace AMSMigrate.Azure
             {
                 storageUri = new Uri($"https://{options.StoragePath}.blob.core.windows.net");
             }
-            _blobServiceClient = new BlobServiceClient(storageUri, credential);
+            var opt = new BlobClientOptions();
+            opt.Retry.MaxRetries = 1;
+            opt.Retry.NetworkTimeout = TimeSpan.FromHours(1);
+            _blobServiceClient = new BlobServiceClient("connectionString",
+                opt);
+            //_blobServiceClient = new BlobServiceClient(storageUri, credential);
 
             _leaseId = Guid.NewGuid().ToString("D");
         }
