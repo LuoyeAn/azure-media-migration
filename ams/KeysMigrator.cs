@@ -9,7 +9,6 @@ namespace AMSMigrate.Ams
 {
     internal class KeysMigrator : BaseMigrator
     {
-        private readonly ILogger _logger;
         private readonly KeyOptions _keyOptions;
         private readonly ISecretUploader _secretUploader;
         private readonly TemplateMapper _templateMapper;
@@ -22,9 +21,8 @@ namespace AMSMigrate.Ams
             TemplateMapper templateMapper,
             ICloudProvider cloudProvider,
             TokenCredential credential) :
-            base(globalOptions, console, credential)
+            base(globalOptions, console, credential, logger)
         {
-            _logger = logger;
             _keyOptions = keyOptions;
             _templateMapper = templateMapper;
             _secretUploader = cloudProvider.GetSecretProvider(keyOptions);
@@ -33,7 +31,12 @@ namespace AMSMigrate.Ams
         public override async Task MigrateAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Begin migration of keys for account: {name}", _keyOptions.AccountName);
-            var account = await GetMediaAccountAsync(_keyOptions.AccountName, cancellationToken);
+            var (isAMSAcc, account) = await IsAMSAccountAsync(_keyOptions.AccountName, cancellationToken);
+            if (!isAMSAcc || account == null)
+            {
+                _logger.LogInformation("No valid media account was found.");
+                throw new Exception("No valid media account was found.");
+            }
 
             var locators = account.GetStreamingLocators().GetAllAsync(_keyOptions.ResourceFilter, cancellationToken: cancellationToken);
             var channel = Channel.CreateBounded<double>(1);

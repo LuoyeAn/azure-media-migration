@@ -13,7 +13,6 @@ namespace AMSMigrate.Ams
 {
     internal class AssetMigrator : BaseMigrator
     {
-        private readonly ILogger _logger;
         private readonly TransformFactory _transformFactory;
         private readonly AssetOptions _options;
         private readonly IMigrationTracker<BlobContainerClient, AssetMigrationResult> _tracker;
@@ -26,18 +25,22 @@ namespace AMSMigrate.Ams
             IMigrationTracker<BlobContainerClient, AssetMigrationResult> tracker,
             ILogger<AssetMigrator> logger,
             TransformFactory transformFactory) :
-            base(globalOptions, console, credential)
+            base(globalOptions, console, credential, logger)
         {
             _options = assetOptions;
             _tracker = tracker;
-            _logger = logger;
             _transformFactory = transformFactory;
         }
 
         public override async Task MigrateAsync(CancellationToken cancellationToken)
         {
             var watch = Stopwatch.StartNew();
-            var account = await GetMediaAccountAsync(_options.AccountName, cancellationToken);
+            var (isAMSAcc, account) = await IsAMSAccountAsync(_options.AccountName, cancellationToken);
+            if (!isAMSAcc || account == null)
+            {
+                _logger.LogInformation("No valid media account was found.");
+                throw new Exception("No valid media account was found.");
+            }
             _logger.LogInformation("Begin migration of assets for account: {name}", account.Data.Name);
             var totalAssets = await QueryMetricAsync(
                 account.Id.ToString(),

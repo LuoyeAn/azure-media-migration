@@ -11,7 +11,6 @@ namespace AMSMigrate.Ams
 {
     internal class CleanupCommand : BaseMigrator
     {
-        private readonly ILogger _logger;
         private readonly CleanupOptions _options;
         private readonly IMigrationTracker<BlobContainerClient, AssetMigrationResult> _tracker;
 
@@ -21,16 +20,21 @@ namespace AMSMigrate.Ams
             TokenCredential credential,
             IMigrationTracker<BlobContainerClient, AssetMigrationResult> tracker,
             ILogger<CleanupCommand> logger)
-            : base(globalOptions, console, credential)
+            : base(globalOptions, console, credential, logger)
         {
             _options = cleanupOptions;
-            _logger = logger;
             _tracker = tracker;
         }
 
         public override async Task MigrateAsync(CancellationToken cancellationToken)
         {
-            var account = await GetMediaAccountAsync(_options.AccountName, cancellationToken);
+
+            var (isAMSAcc, account) = await IsAMSAccountAsync(_options.AccountName, cancellationToken);
+            if (!isAMSAcc || account == null)
+            {
+                _logger.LogInformation("No valid media account was found.");
+                throw new Exception("No valid media account was found.");
+            }
             _logger.LogInformation("Begin cleaning up on account: {name}", account.Data.Name);
 
             if (_options.IsCleanUpAccount)

@@ -1,9 +1,12 @@
 ﻿using AMSMigrate.Contracts;
+using Azure;
 using Azure.Core;
 using Azure.Monitor.Query;
 using Azure.Monitor.Query.Models;
 using Azure.ResourceManager.Media;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
+using System.Threading;
 using System.Threading.Channels;
 
 namespace AMSMigrate.Ams
@@ -16,24 +19,23 @@ namespace AMSMigrate.Ams
         protected readonly GlobalOptions _globalOptions;
         protected readonly MetricsQueryClient _metricsQueryClient;
         protected readonly IAnsiConsole _console;
+        protected readonly ILogger _logger;
 
         public BaseMigrator(
             GlobalOptions options,
             IAnsiConsole console,
-            TokenCredential credential)
+            TokenCredential credential,
+            ILogger logger)
         {
             _globalOptions = options;
             _console = console;
+            _logger = logger;
             _resourceProvider = new AzureResourceProvider(credential, options);
             _metricsQueryClient = new MetricsQueryClient(new Uri("https://management.chinacloudapi.cn"),credential);
         }
 
         public abstract Task MigrateAsync(CancellationToken cancellationToken);
 
-        protected Task<MediaServicesAccountResource> GetMediaAccountAsync(string mediaAccountName, CancellationToken cancellationToken)
-        {
-            return _resourceProvider.GetMediaAccountAsync(mediaAccountName, cancellationToken); ;
-        }
 
 
         protected async Task MigrateInParallel<T>(
@@ -58,6 +60,25 @@ namespace AMSMigrate.Ams
             {
                 await Parallel.ForEachAsync(values, options, processItem);
             }
+        }
+        protected async Task<(bool, MediaServicesAccountResource?)> IsAMSAccountAsync(string accountName, CancellationToken cancellationToken)
+        {
+            MediaServicesAccountResource? amsAccount = null;
+
+            try
+            {
+                amsAccount = await _resourceProvider.GetMediaAccountAsync(accountName, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                if (ex is OutOfMemoryException) throw;  // It is a fatal error.
+
+                // For any other exception, swallow the exception, treat it as not-AMS account, 
+                // The caller then has a chance to treat it as storage account and try it again,
+                // if it is still failed, the caller will throw exception appropriately.
+            }
+
+            return (amsAccount != null, amsAccount);
         }
 
         protected async Task<double> GetStorageBlobMetricAsync(ResourceIdentifier accountId, CancellationToken cancellationToken)
@@ -119,6 +140,7 @@ namespace AMSMigrate.Ams
                         task.MaxValue = value;
                     }
                     task.Value = value;
+                    _logger.LogDebug("{description}: {current}/{total} {unit}", description, value, totalValue, unit);
                     context.Refresh();
                 }
             });
@@ -159,5 +181,6 @@ namespace AMSMigrate.Ams
 
             return resourceFilter;
         }
+
     }
 }

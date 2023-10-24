@@ -8,18 +8,18 @@ using Azure.Identity;
 using Azure.Storage.Blobs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Serilog;
+using Serilog.Events;
 using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Help;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
-using System.Diagnostics;
 using System.Text;
 using Vertical.SpectreLogger;
 using Vertical.SpectreLogger.Core;
-using Vertical.SpectreLogger.Options;
-using Events = AMSMigrate.Contracts.Events;
 
 namespace AMSMigrate
 {
@@ -89,22 +89,17 @@ This command will forcibly revert migrated assets that have failed back to their
                     await ResetAsync(context, resetOptions, context.GetCancellationToken());
                 });
 
-            // disable storage migrate option until ready
-            /*
-                        var storageOptionsBinder = new StorageOptionsBinder();
-                        var storageCommand = storageOptionsBinder.GetCommand("storage", @"Directly migrate the assets from the storage account.
-            Doesn't require the Azure media services to be running.
-            Examples:
-            amsmigrate storage -s <subscription id> -g <resource group> -n <source storage account> -o <output storage account> -t path-template
-            ");
-                        rootCommand.Add(storageCommand);
-                        storageCommand.SetHandler(async context =>
-                        {
-                            var globalOptions = globalOptionsBinder.GetValue(context.BindingContext);
-                            var storageOptions = storageOptionsBinder.GetValue(context.BindingContext);
-                            await MigrateStorageAsync(globalOptions, storageOptions, context.GetCancellationToken());
-                        });
-            */
+            var storageOptionsBinder = new StorageOptionsBinder();
+            var storageCommand = storageOptionsBinder.GetCommand("storage", @"Directly migrate the assets from the storage account.
+Doesn't require the Azure media services to be running.
+Examples:
+amsmigrate storage -s <subscription id> -g <resource group> -n <source storage account> -o <output storage account> -t path-template");
+            rootCommand.Add(storageCommand);
+            storageCommand.SetHandler(async context =>
+            {
+                var storageOptions = storageOptionsBinder.GetValue(context.BindingContext);
+                await MigrateStorageAsync(context, storageOptions, context.GetCancellationToken());
+            });
 
             // disable key migrate option until ready
             /*
@@ -145,9 +140,8 @@ This command will forcibly revert migrated assets that have failed back to their
         static async Task SetupDependencies(InvocationContext context, Func<InvocationContext, Task> next)
         {
             var globalOptions = GlobalOptionsBinder.GetValue(context.BindingContext);
-            using var listener = new TextWriterTraceListener(globalOptions.LogFile);
             var collection = new ServiceCollection();
-            SetupServices(collection, globalOptions, listener);
+            SetupServices(collection, globalOptions);
             var provider = collection.BuildServiceProvider();
             context.BindingContext.AddService<IServiceProvider>(_ => provider);
             var logger = provider.GetRequiredService<ILogger<Program>>();
@@ -157,9 +151,32 @@ This command will forcibly revert migrated assets that have failed back to their
             logger.LogInformation("See file {file} for detailed logs.", globalOptions.LogFile);
         }
 
-        static void SetupServices(IServiceCollection collection, GlobalOptions options, TraceListener listener)
+        static LogEventLevel MapLevel(LogLevel logLevel)
         {
-            var console = AnsiConsole.Console;
+            return logLevel switch
+            {
+                LogLevel.Trace => LogEventLevel.Verbose,
+                LogLevel.Debug => LogEventLevel.Debug,
+                LogLevel.Information => LogEventLevel.Information,
+                LogLevel.Warning => LogEventLevel.Warning,
+                LogLevel.Error => LogEventLevel.Error,
+                LogLevel.Critical => LogEventLevel.Fatal,
+                _ => LogEventLevel.Information
+            };
+        }
+
+        static void SetupServices(IServiceCollection collection, GlobalOptions options)
+        {
+            var settings = new AnsiConsoleSettings
+            {
+                Interactive = options.Interactive ? InteractionSupport.Detect : InteractionSupport.No
+            };
+            var console = AnsiConsole.Create(settings);
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .Enrich.FromLogContext()
+                .WriteTo.File(options.LogFile)
+                .CreateLogger();
 
             collection
                 .AddSingleton<TokenCredential>(new DefaultAzureCredential(new DefaultAzureCredentialOptions
@@ -175,20 +192,29 @@ This command will forcibly revert migrated assets that have failed back to their
                 .AddSingleton<TransformFactory>()
                 .AddLogging(builder =>
                 {
-                    var logSwitch = new SourceSwitch("migration")
-                    {
-                        Level = SourceLevels.All
-                    };
-                    LogEventFilterDelegate filter = (in LogEventContext context) => context.EventId != Events.ShakaPackager;
                     builder
                         .SetMinimumLevel(LogLevel.Trace)
-                        .AddSpectreConsole(builder =>
-                            builder
-                                .SetMinimumLevel(options.LogLevel)
-                                .SetLogEventFilter(filter)
-                                .UseSerilogConsoleStyle()
-                                .UseConsole(console))
-                        .AddTraceSource(logSwitch, listener);
+                        .AddSerilog(dispose: true);
+                    if (options.Interactive)
+                    {
+                        builder.AddSpectreConsole(opts => opts
+                            .SetMinimumLevel(options.LogLevel)
+                            .SetLogEventFilter((in LogEventContext ctxt) => ctxt.EventId != Events.ShakaPackager));
+                    }
+                    else
+                    {
+                        builder.AddConsole(builder =>
+                        {
+                            builder.FormatterName = ConsoleFormatterNames.Simple;
+                            builder.LogToStandardErrorThreshold = options.LogLevel;
+                        });
+                    }
+                })
+                .Configure<SimpleConsoleFormatterOptions>(options =>
+                {
+                    options.SingleLine = true;
+                    options.TimestampFormat = "HH:mm:ss ";
+                    options.IncludeScopes = false;
                 });
             if (options.CloudType == CloudType.Local)
             {
@@ -196,8 +222,7 @@ This command will forcibly revert migrated assets that have failed back to their
             }
             else
             {
-                collection
-                    .AddSingleton<ICloudProvider, AzureProvider>();
+                collection.AddSingleton<ICloudProvider, AzureProvider>();
             }
         }
 
